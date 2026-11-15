@@ -136,6 +136,17 @@ button {
   animation: sweep 1.5s ease-in-out infinite;
 }
 
+.l-hint {
+  margin-top: 26px;
+  font-size: 12px;
+  line-height: 1.9;
+  letter-spacing: 0.08em;
+  color: rgba(200, 218, 208, 0.55);
+  text-align: center;
+  opacity: 0;
+  animation: fadeUp 1s ease 4s forwards;
+}
+
 @keyframes sweep { 0% { transform: translateX(-100%); } 100% { transform: translateX(320%); } }
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(8px); }
@@ -1152,6 +1163,7 @@ button {
       <div class="l-title">野<span>·</span>塘</div>
       <div class="l-sub">A Quiet Pond</div>
       <div class="l-bar"><i></i></div>
+      <div class="l-hint">如果长时间打不开<br>请点右上角 ··· 选择「在浏览器打开」</div>
     </div>
   </div>
 
@@ -7115,7 +7127,8 @@ POND.CONFIG = {
       want.forEach(function (w, i) { A[w.key] = loaded[i]; });
     } catch (err) {
       loader.innerHTML = '<div class="l-err">素材加载失败<br><small>' + err.message +
-        '</small><br><small>请确认 assets/ 目录完整</small></div>';
+        '</small><br><small>请确认 assets/ 目录完整</small>' +
+        '<br><small>在微信/抖音里打开的，请点右上角 ··· 选择「在浏览器打开」重试</small></div>';
       return;
     }
 
