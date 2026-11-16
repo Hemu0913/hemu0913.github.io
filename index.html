@@ -1333,10 +1333,11 @@ POND.CONFIG = {
     // 收线
     reel: {
       baseSpeed: 0.52,            // 每秒收线进度（0~1）
-      tensionRise: 0.42,          // 按住时张力上升速率
+      tensionRise: 0.36,          // 按住时张力上升速率
       tensionFall: 0.85,          // 松开时张力回落
       tensionMax: 1.0,
-      breakThreshold: 0.96        // 张力超过即断线
+      breakThreshold: 1.05,       // 张力超过进入宽限（V2.6.1 由 0.96 提高）
+      breakGrace: 0.6             // V2.6.1 宽限期（秒）：超线后 0.6 秒内降下来不断线
     },
     // 挣扎
     fight: {
@@ -5696,6 +5697,7 @@ POND.CONFIG = {
       this.weight = 0;
       this.progress = 0;
       this.tension = 0;
+      this.overTime = 0;
       this.reeling = false;
       this.pulseTimer = 0;
       this.pulse = 0;
@@ -5797,6 +5799,7 @@ POND.CONFIG = {
       this.strikeQuality = 1;
       this.progress = 0.06;
       this.tension = 0.18;
+      this.overTime = 0;
       this.pulse = 0;
       this.pulseTimer = U.rand(0.8, 1.5);
       this.setState(S.REELING);
@@ -5912,7 +5915,7 @@ POND.CONFIG = {
       } else {
         this.tension -= gp.tensionFall * dt * (0.7 + rod.control * 0.8);
       }
-      this.tension += this.pulse * dt * 2.6;
+      this.tension += this.pulse * dt * 2.0;   // V2.6.1 脉冲削峰（原 2.6）
       this.tension = U.clamp(this.tension, 0, 1.2);
 
       // ---- 进度 ----
@@ -5939,8 +5942,14 @@ POND.CONFIG = {
 
       // ---- 判定 ----
       if (this.tension >= gp.breakThreshold) {
-        this.snap();
-        return;
+        // V2.6.1 宽限期：超线先警告，0.6 秒内把张力降下来就不断；一直顶着才断
+        this.overTime += dt;
+        if (this.overTime >= (gp.breakGrace || 0.6)) {
+          this.snap();
+          return;
+        }
+      } else {
+        this.overTime = 0;
       }
       if (this.progress >= 1) {
         this.land();
@@ -6019,6 +6028,7 @@ POND.CONFIG = {
       this.timer = 0;
       this.progress = 0;
       this.tension = 0;
+      this.overTime = 0;
       this.reeling = false;
       this.fish = null;
       this.weight = 0;
@@ -6339,14 +6349,21 @@ POND.CONFIG = {
       }
       if (f.state === S.REELING) {
         this.el.progFill.style.width = (f.progress * 100).toFixed(1) + '%';
-        const t = Math.min(1, f.tension);
+        const t = Math.min(1, f.tension / 1.05);
         this.el.tensFill.style.width = (t * 100).toFixed(1) + '%';
-        this.el.tensFill.style.background =
-          t > 0.82
-            ? 'linear-gradient(90deg,#d9a06a,#d9736b)'
-            : 'linear-gradient(90deg,#8ec9a2,#d9c27a 60%,#d9736b)';
-        this.el.reelHint.textContent =
-          t > 0.8 ? '张力过高！快松手' : (t < 0.22 ? '收线别停，把线收紧' : '保持张力，慢慢收');
+        if (f.overTime > 0) {
+          // V2.6.1 宽限期警告：张力条红闪
+          const flash = Math.floor(performance.now() / 150) % 2 === 0;
+          this.el.tensFill.style.background = flash ? '#e03224' : '#ffb3a7';
+          this.el.reelHint.textContent = '要断了！快松手！';
+        } else {
+          this.el.tensFill.style.background =
+            t > 0.82
+              ? 'linear-gradient(90deg,#d9a06a,#d9736b)'
+              : 'linear-gradient(90deg,#8ec9a2,#d9c27a 60%,#d9736b)';
+          this.el.reelHint.textContent =
+            t > 0.8 ? '张力过高！快松手' : (t < 0.22 ? '收线别停，把线收紧' : '保持张力，慢慢收');
+        }
       }
     }
   };
