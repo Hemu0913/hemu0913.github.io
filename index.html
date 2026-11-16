@@ -972,6 +972,42 @@ button {
 }
 .result-layer.show { display: flex; animation: fadeIn 0.25s ease; }
 
+.redeem-input {
+  margin-top: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 9px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(217, 187, 132, 0.35);
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+  font-size: 15px;
+  outline: none;
+}
+.redeem-input:focus { border-color: rgba(217, 187, 132, 0.8); }
+
+.choose-card { max-width: 380px; }
+.choose-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-top: 14px;
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.choose-cell {
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 8px 4px 7px;
+  cursor: pointer;
+}
+.choose-cell:active { background: rgba(217, 187, 132, 0.22); }
+.choose-img { height: 44px; display: flex; align-items: center; justify-content: center; }
+.choose-img img { max-height: 44px; max-width: 92%; object-fit: contain; }
+.choose-name { font-size: 14px; color: #fff; margin-top: 4px; }
+.choose-sub { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+
 .result-card {
   width: 84%;
   max-width: 340px;
@@ -1429,6 +1465,7 @@ POND.CONFIG = {
       baits: { bait_beginner: 20 },
       equipped: { rod: 'bamboo', rig: 'nylon_1', bait: 'bait_beginner' },
       baitMigrated: true,     // 饵料压缩到 4 档的迁移标记（老存档没有这个键）
+      redeemedCodes: [],      // 已兑换过的兑换码（每个码每存档限一次）
 
       cabinetSlots: CFG.economy.cabinet.startSlots,
       cabinet: [],            // {fishId, weight, length, quality, at}
@@ -1445,6 +1482,11 @@ POND.CONFIG = {
       settings: { sound: true, quality: 'auto' }
     };
   }
+
+  /* 兑换码表：码 -> 奖励。wzy 发万能线组（自选目标鱼）。 */
+  const REDEEM_CODES = {
+    wzy: { rig: 'rig_universal' }
+  };
 
   const Store = {
     data: null,
@@ -1573,6 +1615,24 @@ POND.CONFIG = {
       this.data.baits[id] = n - 1;
       this.save();
       return true;
+    },
+
+    /* 兑换码：成功返回 { ok:true, rig }；码不对 invalid；兑过 used */
+    redeem(code) {
+      code = String(code || '').trim().toLowerCase();
+      const d = this.data;
+      if (!Array.isArray(d.redeemedCodes)) d.redeemedCodes = [];
+      const reward = REDEEM_CODES[code];
+      if (!reward) return { ok: false, reason: 'invalid' };
+      if (d.redeemedCodes.indexOf(code) >= 0) return { ok: false, reason: 'used' };
+      d.redeemedCodes.push(code);
+      let got = null;
+      if (reward.rig && d.rigs.indexOf(reward.rig) < 0) {
+        d.rigs.push(reward.rig);
+        got = P.RIG_BY_ID[reward.rig] || null;
+      }
+      this.save();
+      return { ok: true, rig: got };
     },
 
     /* 记录一次捕获 */
@@ -2565,6 +2625,13 @@ POND.CONFIG = {
       hook: '11 号石斑钩', strength: 24, price: 80, currency: 'coin',
       fit: '青石斑、大型海鲈', recWeight: [4, 24],
       desc: '专为礁石区设计，耐磨、抗磨礁，能硬把石斑从洞里拉出来。'
+    },
+    {
+      id: 'rig_universal', name: '万能线组', main: '万能主线', sub: '万能子线',
+      hook: '万能钩', strength: 30, price: 0, currency: 'coin',
+      secret: true, universal: true,
+      fit: '全部鱼种 · 自选目标鱼', recWeight: [0, 30],
+      desc: '兑换码专属线组，商店买不到。装备后每次有鱼咬钩，你可以自己决定上钩的是哪种鱼（限当前钓点的鱼）。'
     }
   ];
 
@@ -5717,6 +5784,8 @@ POND.CONFIG = {
       this.strikeQuality = 0;
       this.castPower = 0;
       this.idleSince = 0;
+      this.canChoose = false;   // 万能线组：本次可自选目标鱼
+      this.choosing = false;    // 正在选鱼（咬钩计时暂停）
 
       // 抛竿落水后由场景回调
       scene.onLanded = () => this.onCastLanded();
@@ -5785,6 +5854,9 @@ POND.CONFIG = {
       // 预先生成本次要上的鱼
       this.fish = this.game.rollFish();
       this.weight = this.game.rollWeight(this.fish);
+      // 万能线组：咬钩时改为玩家自选（鱼影先按随机鱼展示，选完再换）
+      this.canChoose = !!(this.game.rig && this.game.rig.universal);
+      this.choosing = false;
       // 水下鱼影：先露头，再慢慢游到饵边（等待阶段的可视化）
       this.scene.startFishEncounter(this.fish);
       this.nibbles = 0;
@@ -5865,6 +5937,7 @@ POND.CONFIG = {
         }
 
         case S.BITING: {
+          if (this.choosing) break;   // 等玩家选鱼，咬钩计时不走
           this.timer -= dt;
           const k = U.clamp(1 - this.timer / CFG.gameplay.bite.windowTime, 0, 1);
           this.scene.setFloatSink(0.55 + k * 0.45);
@@ -5893,6 +5966,17 @@ POND.CONFIG = {
     startBite() {
       this.setState(S.BITING);
       this.timer = CFG.gameplay.bite.windowTime;
+      // 万能线组：先让玩家自选目标鱼，选完才真正进入咬钩窗口
+      if (this.canChoose) {
+        this.choosing = true;
+        this.scene.setFloatSink(0.3);
+        this.emit('choosefish', this.game.candidates());
+        return;
+      }
+      this.beginBite();
+    }
+
+    beginBite() {
       // 大鱼咬钩，浮漂沉得更狠、抖得更凶
       const f = this.fish;
       this.scene.setFloatSink(0.30 + (f ? f.power * 0.45 : 0));
@@ -5900,6 +5984,22 @@ POND.CONFIG = {
       this.scene.fishBite();
       if (P.Audio) P.Audio.bite();
       this.emit('bite', this.fish);
+    }
+
+    /* 万能线组选鱼：换掉本次目标鱼并重开咬钩窗口 */
+    chooseFish(fishId) {
+      if (!this.choosing) return false;
+      const f = P.fishById(fishId);
+      if (!f) return false;
+      // 只能选当前钓点有的鱼（candidates 已按地图过滤）
+      const ok = this.game.candidates().some(function (it) { return it.fish.id === fishId; });
+      if (!ok) return false;
+      this.fish = f;
+      this.weight = this.game.rollWeight(f);
+      this.choosing = false;
+      this.timer = CFG.gameplay.bite.windowTime;
+      this.beginBite();
+      return true;
     }
 
     updateReel(dt) {
@@ -6686,7 +6786,7 @@ POND.CONFIG = {
       }
 
       if (this.tab === 'rig') {
-        html = P.RIGS.map(function (r) {
+        html = P.RIGS.filter(function (r) { return !r.secret || d.rigs.indexOf(r.id) >= 0; }).map(function (r) {
           const owned = d.rigs.indexOf(r.id) >= 0;
           const eq = d.equipped.rig === r.id;
           return '<div class="row' + (eq ? ' equipped' : '') + (owned ? '' : ' locked') + '">' +
@@ -6885,7 +6985,7 @@ POND.CONFIG = {
             '<div class="btn small ' + (can ? 'primary' : 'disabled') + '" data-act="buy-rod" data-id="' + r.id + '">' + (r.currency === 'gem' ? '◆ ' : '◈ ') + r.price + '</div></div>';
         }).join('') || '<div class="empty-hint">鱼竿已全部收集</div>';
 
-        const rigHtml = P.RIGS.filter(function (r) { return d.rigs.indexOf(r.id) < 0; }).map(function (r) {
+        const rigHtml = P.RIGS.filter(function (r) { return !r.secret && d.rigs.indexOf(r.id) < 0; }).map(function (r) {
           const can = P.Store.coins >= r.price;
           return '<div class="row">' +
             '<div class="row-main"><div class="row-name">' + r.name + '</div>' +
@@ -6919,13 +7019,20 @@ POND.CONFIG = {
         '<div class="btn small ' + (d.settings.sound ? 'primary' : '') + '" data-act="toggle-sound">' +
         (d.settings.sound ? '开启' : '关闭') + '</div></div>' +
 
+        '<div class="section-title">兑换码</div>' +
+        '<div class="row"><div class="row-main"><div class="row-name">输入兑换码</div>' +
+        '<div class="row-desc">兑换专属奖励，每个兑换码只能使用一次</div>' +
+        '<input id="redeemInput" class="redeem-input" type="text" placeholder="输入兑换码" autocomplete="off">' +
+        '</div>' +
+        '<div class="btn small primary" data-act="redeem">兑换</div></div>' +
+
         '<div class="section-title">数据</div>' +
         '<div class="row"><div class="row-main"><div class="row-name">清空存档</div>' +
         '<div class="row-desc">金币、装备、图鉴、收藏柜全部重置，不可撤销</div></div>' +
         '<div class="btn small ghost" data-act="reset">重置</div></div>' +
 
         '<div class="section-title">关于</div>' +
-        '<div class="kv"><div class="kv-k">版本</div><div class="kv-v">首版 0.9</div></div>' +
+        '<div class="kv"><div class="kv-k">版本</div><div class="kv-v">V2.6.3</div></div>' +
         '<div class="kv"><div class="kv-k">技术</div><div class="kv-v">HTML / CSS / Canvas，无后端，数据存本地</div></div>' +
         '<div class="kv"><div class="kv-k">鱼种</div><div class="kv-v">' + P.FISH.length + ' 种真实鱼类，全部标注学名与核实状态</div></div>' +
         '<div class="empty-hint" style="padding-top:24px;line-height:1.9">' +
@@ -6951,6 +7058,22 @@ POND.CONFIG = {
         case 'go-dex': this.open('dex'); break;
         case 'go-cabinet': this.open('cabinet'); break;
         case 'go-settings': this.open('settings'); break;
+
+        case 'redeem': {
+          const input = document.getElementById('redeemInput');
+          const code = input ? input.value : '';
+          if (!String(code || '').trim()) { this.toast('先输入兑换码'); return; }
+          const res = P.Store.redeem(code);
+          if (res.ok) {
+            if (P.Audio) P.Audio.coin();
+            this.toast(res.rig ? ('兑换成功！获得「' + res.rig.name + '」，去装备里换上吧') : '兑换成功！');
+          } else if (res.reason === 'used') {
+            this.toast('这个兑换码已经兑换过了');
+          } else {
+            this.toast('兑换码不对，再检查一下');
+          }
+          break;
+        }
 
         case 'pick-map': {
           const map = P.mapById(id);
@@ -7126,6 +7249,27 @@ POND.CONFIG = {
       }
     },
 
+    /* ------------------------------ 万能线组：选鱼 ------------------------------ */
+    chooseFish(list) {
+      const layer = this.resultLayer;
+      const cards = (list || []).map(function (it) {
+        const f = it.fish;
+        const r = P.RARITY[f.rarity] || {};
+        return '<div class="choose-cell" data-act="choose-fish" data-id="' + f.id + '">' +
+          '<div class="choose-img">' + imgTag(f.sprite) + '</div>' +
+          '<div class="choose-name">' + f.name + '</div>' +
+          '<div class="choose-sub">' + (r.name || '') + '</div></div>';
+      }).join('');
+      layer.innerHTML =
+        '<div class="result-card choose-card">' +
+          '<div class="result-kicker">万能线组</div>' +
+          '<div class="result-name" style="font-size:20px">鱼群就在水下！</div>' +
+          '<div class="result-price">点一下，选择这次要钓上来的鱼</div>' +
+          '<div class="choose-grid">' + cards + '</div>' +
+        '</div>';
+      layer.classList.add('show');
+    },
+
     /* ------------------------------ 结算 ------------------------------ */
     resultCatch(data) {
       this.lastCatch = data;
@@ -7190,6 +7334,11 @@ POND.CONFIG = {
       const data = this.lastCatch;
 
       if (a === 'close-result') {
+        layer.classList.remove('show');
+        return;
+      }
+      if (a === 'choose-fish') {
+        if (P.fishing) P.fishing.chooseFish(act.dataset.id);
         layer.classList.remove('show');
         return;
       }
@@ -7765,6 +7914,11 @@ POND.CONFIG = {
     document.addEventListener('pointerdown', function once() {
       P.Audio.resume();
       document.removeEventListener('pointerdown', once);
+    });
+
+    // 万能线组：咬钩时弹出选鱼面板
+    fishing.on('choosefish', function (list) {
+      panels.chooseFish(list);
     });
 
     // 任务进度：钓到鱼
