@@ -604,6 +604,19 @@ button {
 }
 .sheet-close:active { background: rgba(255, 255, 255, 0.12); }
 
+.sheet-back {
+  flex: none;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+.sheet-back:active { background: rgba(255, 255, 255, 0.12); }
+
 .sheet-body {
   flex: 1;
   overflow-y: auto;
@@ -6394,6 +6407,8 @@ POND.CONFIG = {
     layer: null,
     resultLayer: null,
     current: null,
+    history: [],
+    detail: null,
     tab: null,
     lastCatch: null,
 
@@ -6419,6 +6434,11 @@ POND.CONFIG = {
 
     /* ------------------------------ 开关 ------------------------------ */
     open(name, opts) {
+      if (this.current && name !== this.current && !this._backNav) {
+        this.history.push({ name: this.current, tab: this.tab });
+      }
+      this._backNav = false;
+      this.detail = null;
       this.current = name;
       this.opts = opts || {};
       if (this.opts.tab) this.tab = this.opts.tab;
@@ -6427,6 +6447,7 @@ POND.CONFIG = {
         '<div class="sheet">' +
           '<div class="sheet-grip"></div>' +
           '<div class="sheet-head">' +
+            '<button class="sheet-back" id="sheetBack" data-act="back"' + (this.history.length ? '' : ' style="display:none"') + '>← 返回</button>' +
             '<div><div class="sheet-title" id="sheetTitle"></div>' +
             '<div class="sheet-sub" id="sheetSub"></div></div>' +
             '<button class="sheet-close" data-act="close">✕</button>' +
@@ -6441,9 +6462,25 @@ POND.CONFIG = {
     close() {
       this.layer.classList.remove('open');
       this.current = null;
+      this.history = [];
+      this.detail = null;
       setTimeout(() => {
         if (!this.current) this.layer.innerHTML = '';
       }, 300);
+    },
+
+    goBack() {
+      if (this.detail === 'dex') { this.detail = null; this.renderDex(); this.syncBack(); return; }
+      if (this.detail === 'cabinet') { this.detail = null; this.renderCabinet(); this.syncBack(); return; }
+      const prev = this.history.pop();
+      if (!prev) return;
+      this._backNav = true;
+      this.open(prev.name, { tab: prev.tab });
+    },
+
+    syncBack() {
+      const b = document.getElementById('sheetBack');
+      if (b) b.style.display = (this.history.length || this.detail) ? '' : 'none';
     },
 
     setHead(title, sub) {
@@ -6577,7 +6614,7 @@ POND.CONFIG = {
         }).slice(0, 4).join(' · ');
 
         return '<div class="map-card' + (active ? ' active' : '') + '" data-act="pick-map" data-id="' + m.id + '">' +
-          '<div class="map-bg" style="background-image:url(' + m.bg + ')"></div>' +
+          '<div class="map-bg" style="background-image:url(' + U.assetURL(m.bg) + ')"></div>' +
           '<div class="map-info">' +
             '<div class="map-head">' +
               '<div><div class="map-name">' + m.name + '</div>' +
@@ -6717,9 +6754,10 @@ POND.CONFIG = {
       this.body('<div class="grid">' + html + '</div>');
     },
 
-    renderFishDetail(id) {
+    renderFishDetail(id, from) {
       const f = P.fishById(id);
       if (!f) return;
+      this.detail = from || 'dex';
       const rec = P.Store.data.records[id];
       const r = P.RARITY[f.rarity];
       const self = this;
@@ -6770,6 +6808,7 @@ POND.CONFIG = {
         '</div>' +
         '<div style="margin-top:16px;font-size:12.5px;line-height:1.85;color:var(--muted)">' + f.desc + '</div>'
       );
+      this.syncBack();
     },
 
     /* ------------------------------ 收藏柜 ------------------------------ */
@@ -6904,6 +6943,7 @@ POND.CONFIG = {
 
       switch (a) {
         case 'close': this.close(); break;
+        case 'back': this.goBack(); break;
         case 'tab': this.tab = act.dataset.tab; this.render(); break;
         case 'go-map': this.open('map'); break;
         case 'go-equip': this.open('equip', { tab: 'rod' }); break;
@@ -7006,7 +7046,7 @@ POND.CONFIG = {
           break;
         }
 
-        case 'fish-detail': this.renderFishDetail(id); break;
+        case 'fish-detail': this.renderFishDetail(id, 'dex'); break;
 
         case 'expand': {
           const price = P.Store.nextCabinetPrice();
@@ -7024,7 +7064,7 @@ POND.CONFIG = {
         case 'cab-detail': {
           const idx = parseInt(act.dataset.i, 10);
           const item = d.cabinet[idx];
-          if (item) this.renderFishDetail(item.fishId);
+          if (item) this.renderFishDetail(item.fishId, 'cabinet');
           break;
         }
 
